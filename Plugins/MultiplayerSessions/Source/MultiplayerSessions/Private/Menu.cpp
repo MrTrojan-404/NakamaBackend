@@ -191,15 +191,14 @@ void UMenu::OnCreateSession(bool bWasSuccessful)
 				
 			}
 			// Register private match BEFORE travel so the code is ready in lobby
-			if (bHostPrivate)
+
+			if (IPrivateMatchInterface* Handler =
+				UMultiplayerSessionsSubsystem::GetPrivateMatchInterface())
 			{
-				if (IPrivateMatchInterface* Handler =
-					UMultiplayerSessionsSubsystem::GetPrivateMatchInterface())
-				{
-					FString SessionId = MultiplayerSessionsSubsystem->GetCurrentSessionId();
-					Handler->RequestRegisterMatch(SessionId);
-				}
+				FString SessionId = MultiplayerSessionsSubsystem->GetCurrentSessionId();
+				Handler->RequestRegisterMatch(SessionId);
 			}
+			
 
 			GetWorld()->ServerTravel(PathToLobby);
 			

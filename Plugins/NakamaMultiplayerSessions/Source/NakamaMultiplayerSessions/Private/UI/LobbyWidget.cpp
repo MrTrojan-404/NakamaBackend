@@ -5,6 +5,7 @@
 
 #include "MultiplayerSessionsSubsystem.h"
 #include "Components/TextBlock.h"
+#include "GameState/LobbyGameState.h"
 #include "Subsystem/GameBridgeSubsystem.h"
 
 void ULobbyWidget::NativeConstruct()
@@ -34,27 +35,37 @@ void ULobbyWidget::LobbySetup()
 	const bool bPrivate = MSS && MSS->IsSessionPrivate();
 
 	if (VisibilityText)
-		VisibilityText->SetText(FText::FromString(
-			bPrivate ? TEXT("Private") : TEXT("Public")));
+		VisibilityText->SetText(FText::FromString(bPrivate ? TEXT("Private") : TEXT("Public")));
 
-	// Hide code text until the host receives it
 	if (MatchCodeText)
 		MatchCodeText->SetVisibility(ESlateVisibility::Collapsed);
 
-	// Only host of a private match needs the code callback
-	if (bPrivate && Bridge && IsHost())
-	{
-		Bridge->OnPrivateMatchReady.AddDynamic(
-			this, &ULobbyWidget::OnMatchCodeReceived);
-	}
+	if (!Bridge) return;
+
+	// Bind to Bridge — fires on host when Nakama write completes
+	Bridge->OnPrivateMatchReady.AddDynamic(this, &ULobbyWidget::OnMatchCodeReceived);
+
+	// Race condition fix — code may already be ready
+	FString ExistingCode = Bridge->GetActiveMatchCode();
+	if (!ExistingCode.IsEmpty())
+		OnMatchCodeReceived(ExistingCode);
 }
 
 void ULobbyWidget::OnMatchCodeReceived(FString Code)
 {
-	if (!MatchCodeText) return;
+	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Green,
+		FString::Printf(TEXT("[Lobby] OnMatchCodeReceived: '%s'"), *Code));
 
-	MatchCodeText->SetText(FText::FromString(
-		FString::Printf(TEXT("Code: %s"), *Code)));
+	// Update GameState from here — we're guaranteed to be in the correct world
+	if (ALobbyGameState* GS = GetWorld()->GetGameState<ALobbyGameState>())
+	{
+		GS->MatchCode = Code;
+		// OnRep won't fire on host, so broadcast manually for any other local listeners
+		GS->OnMatchCodeReady.Broadcast(Code);
+	}
+
+	if (!MatchCodeText) return;
+	MatchCodeText->SetText(FText::FromString(FString::Printf(TEXT("Code: %s"), *Code)));
 	MatchCodeText->SetVisibility(ESlateVisibility::Visible);
 }
 

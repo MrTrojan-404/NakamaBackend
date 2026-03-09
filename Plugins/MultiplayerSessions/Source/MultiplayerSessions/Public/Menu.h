@@ -8,6 +8,7 @@
 #include "Interfaces/OnlineSessionInterface.h"
 #include "Menu.generated.h"
 
+class UEditableTextBox;
 class UScrollBox;
 /**
  * 

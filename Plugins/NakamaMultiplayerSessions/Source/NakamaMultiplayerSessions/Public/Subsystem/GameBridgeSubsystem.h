@@ -105,6 +105,10 @@ public:
     UPROPERTY(BlueprintAssignable)
 	FOnFriendsSynced OnFriendsSynced;
 
+	// Returns the code immediately if already generated (handles race with LobbyWidget load)
+	UFUNCTION(BlueprintCallable, Category="Bridge|PrivateMatch")
+	FString GetActiveMatchCode() const { return ActiveMatchCode; }
+
 private:
 	FString ActiveMatchCode;
 	FString PendingDisplayName;

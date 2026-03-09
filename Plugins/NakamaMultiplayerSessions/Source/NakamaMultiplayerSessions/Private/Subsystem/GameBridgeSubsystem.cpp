@@ -10,6 +10,7 @@
 #include "Interfaces/OnlineIdentityInterface.h"
 #include "OnlineSubsystemUtils.h"
 #include "Dom/JsonObject.h"
+#include "GameState/LobbyGameState.h"
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -103,6 +104,13 @@ UNakamaBackendSubsystem* UGameBridgeSubsystem::GetNakama() const
 void UGameBridgeSubsystem::RegisterPrivateMatch(const FString& SteamSessionId)
 {
     UNakamaBackendSubsystem* Nakama = GetNakama();
+
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Cyan,
+    FString::Printf(TEXT("[Bridge] RegisterPrivateMatch called. SessionId: '%s' | Nakama valid: %s | LoggedIn: %s"),
+        *SteamSessionId,
+        Nakama          ? TEXT("YES") : TEXT("NO"),
+        (Nakama && Nakama->IsLoggedIn()) ? TEXT("YES") : TEXT("NO")));
+    
     if (!Nakama || !Nakama->IsLoggedIn()) return;
 
     ActiveMatchCode = GenerateCode();
@@ -136,8 +144,10 @@ void UGameBridgeSubsystem::RegisterPrivateMatch(const FString& SteamSessionId)
 
 void UGameBridgeSubsystem::HandlePrivateMatchWriteSuccess(const FNakamaStoreObjectAcks& Acks)
 {
-    UE_LOG(LogTemp, Log, TEXT("[Bridge] Private match registered. Code: %s"), *ActiveMatchCode);
-    OnPrivateMatchReady.Broadcast(ActiveMatchCode);
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Green,
+     FString::Printf(TEXT("[Bridge] Write success! Code: '%s'"), *ActiveMatchCode));
+
+    OnPrivateMatchReady.Broadcast(ActiveMatchCode); // LobbyWidget handles the rest
 }
 
 void UGameBridgeSubsystem::JoinByCode(const FString& Code)
@@ -266,7 +276,8 @@ void UGameBridgeSubsystem::OnNakamaAccountLoaded()
     // Cache display name into MSS so CreateSession picks it up
     if (UMultiplayerSessionsSubsystem* Steam = GetSteam())
         Steam->SetHostDisplayName(Nakama->GetUsername());
-
+    
+    
     // Existing name sync logic
     if (!Nakama->HasPlayerName())
         SyncDisplayNameFromSteam();
