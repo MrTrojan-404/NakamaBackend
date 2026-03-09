@@ -395,7 +395,7 @@ void UMenu::FindSessionButtonClicked()
 			FColor::Cyan,
 			FString::Printf(TEXT("Menu->MSS- FindSession Called")));
 		}
-		MultiplayerSessionsSubsystem->FindSession(10000);
+		MultiplayerSessionsSubsystem->FindSession(200);
 	}
 }
 

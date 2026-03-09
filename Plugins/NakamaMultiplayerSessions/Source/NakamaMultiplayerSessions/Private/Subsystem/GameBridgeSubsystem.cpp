@@ -52,6 +52,13 @@ void UGameBridgeSubsystem::RequestUnregisterMatch()
 {
     UnregisterPrivateMatch();
 }
+void UGameBridgeSubsystem::NotifyJoinByCodeFailed(const FString& Error)
+{
+    if (UMultiplayerSessionsSubsystem* Steam = GetSteam())
+    {
+        Steam->NotifyJoinByCodeFailed(Error);
+    }
+}
 
 // IPlayerBackendInterface
 bool UGameBridgeSubsystem::IsBackendAuthenticated() const

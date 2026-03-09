@@ -38,9 +38,10 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnServerListUpdated, const TArray<
 
 
 UCLASS()
-class MULTIPLAYERSESSIONS_API UMultiplayerSessionsSubsystem : public UGameInstanceSubsystem, public IPrivateMatchInterface
+class MULTIPLAYERSESSIONS_API UMultiplayerSessionsSubsystem : public UGameInstanceSubsystem
 {
 	GENERATED_BODY()
+	
 public:
 	UMultiplayerSessionsSubsystem();
 
@@ -52,7 +53,7 @@ public:
 	void DestroySession();
 	void StartSession();
 
-	virtual void NotifyJoinByCodeFailed(const FString& Error) override;
+	void NotifyJoinByCodeFailed(const FString& Error);
 	
 
 	//Our own custom delegates for the Menu class to bind callbacks to

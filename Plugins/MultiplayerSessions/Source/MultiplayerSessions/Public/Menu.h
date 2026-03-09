@@ -5,7 +5,6 @@
 #include "CoreMinimal.h"
 #include "ServerRowWidget.h"
 #include "Blueprint/UserWidget.h"
-#include "Interface/BridgeErrorInterface.h"
 #include "Interfaces/OnlineSessionInterface.h"
 #include "Menu.generated.h"
 
@@ -14,7 +13,7 @@ class UScrollBox;
  * 
  */
 UCLASS()
-class MULTIPLAYERSESSIONS_API UMenu : public UUserWidget, public IBridgeErrorInterface
+class MULTIPLAYERSESSIONS_API UMenu : public UUserWidget
 {
 	GENERATED_BODY()
 
@@ -24,7 +23,7 @@ public:
 	
 	void SetServerListEnabled(bool bEnabled);
 
-	virtual void OnBridgeError(const FString& Error) override;
+	virtual void OnBridgeError(const FString& Error);
 protected:
 	virtual bool Initialize() override;
 	virtual void NativeDestruct() override;

@@ -42,11 +42,12 @@ public:
 	virtual void RequestJoinByCode(const FString& Code) override;
 	virtual void RequestRegisterMatch(const FString& SessionId) override;
 	virtual void RequestUnregisterMatch() override;
-
+	virtual void NotifyJoinByCodeFailed(const FString& Error) override;
+	
 	// IPlayerBackendInterface
-	virtual bool    IsBackendAuthenticated() const override;
+	virtual bool IsBackendAuthenticated() const override;
 	virtual FString GetBackendDisplayName() const override;
-	virtual void    RequestSetDisplayName(const FString& Name) override;
+	virtual void RequestSetDisplayName(const FString& Name) override;
 
 	// ILeaderboardInterface
 	virtual void SubmitScore(const FString& LeaderboardId, int64 Score) override;
@@ -56,7 +57,7 @@ public:
     // ── Accessors ─────────────────────────────────────────────────────────────
     // Shorthand getters so features don't need to reach into GameInstance themselves
     UMultiplayerSessionsSubsystem* GetSteam()  const;
-    UNakamaBackendSubsystem*       GetNakama() const;
+    UNakamaBackendSubsystem* GetNakama() const;
 
     // ── Feature: Private Matches ──────────────────────────────────────────────
     // HOST: Call once Steam session is created

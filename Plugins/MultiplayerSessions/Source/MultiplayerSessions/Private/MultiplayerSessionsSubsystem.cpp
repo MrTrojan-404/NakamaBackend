@@ -212,7 +212,7 @@ void UMultiplayerSessionsSubsystem::FindSession(int32 MaxSearchResults)
 	}
 	FindSessionsCompleteDelegateHandle = SessionInterface->AddOnFindSessionsCompleteDelegate_Handle(FindSessionsCompleteDelegate);
 	LastSessionSearch = MakeShareable(new FOnlineSessionSearch());
-    LastSessionSearch->MaxSearchResults = FMath::Clamp(MaxSearchResults, 1, 2000); // limit to something reasonable
+    LastSessionSearch->MaxSearchResults = FMath::Clamp(MaxSearchResults, 1, 200); // limit to something reasonable
     LastSessionSearch->bIsLanQuery = (OSS->GetSubsystemName() == "NULL");
 	LastSessionSearch->QuerySettings.Set(SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);
 	
@@ -282,7 +282,7 @@ void UMultiplayerSessionsSubsystem::FindSessionById(const FString& SessionId)
 			FindSessionsCompleteDelegate);
 
 	LastSessionSearch = MakeShareable(new FOnlineSessionSearch());
-	LastSessionSearch->MaxSearchResults = 1000;
+	LastSessionSearch->MaxSearchResults = 200;
 	LastSessionSearch->bIsLanQuery = (OSS->GetSubsystemName() == "NULL");
 
 	LastSessionSearch->QuerySettings.Set(
@@ -510,6 +510,11 @@ void UMultiplayerSessionsSubsystem::OnFindSessionComplete(bool bWasSuccessful)
 	CachedServerRows.Reset();
 	for (const FOnlineSessionSearchResult& Result : LastSessionSearch->SearchResults)
 	{
+		if (!Result.IsValid()) continue;
+
+		if (Result.Session.NumOpenPublicConnections <= 0)
+			continue;
+
 		CachedServerRows.Add(MakeServerRowInfoFromSearchResult(Result));
 	}
 
