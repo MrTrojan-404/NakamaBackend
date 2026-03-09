@@ -259,6 +259,9 @@ void UMultiplayerSessionsSubsystem::FindSession(int32 MaxSearchResults)
 
 void UMultiplayerSessionsSubsystem::FindSessionById(const FString& SessionId)
 {
+	PendingJoinSessionId = SessionId;
+	bFindingBySessionId = true;
+	
 	IOnlineSubsystem* OSS = Online::GetSubsystem(GetWorld());
 	if (!OSS)
 	{

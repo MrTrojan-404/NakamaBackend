@@ -143,8 +143,18 @@ void UGameBridgeSubsystem::HandlePrivateMatchWriteSuccess(const FNakamaStoreObje
 void UGameBridgeSubsystem::JoinByCode(const FString& Code)
 {
     UNakamaBackendSubsystem* Nakama = GetNakama();
-    if (!Nakama || !Nakama->IsLoggedIn()) return;
+    if (!Nakama || !Nakama->IsLoggedIn())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Bridge] JoinByCode failed: backend not logged in"));
 
+        if (UMultiplayerSessionsSubsystem* Steam = GetSteam())
+        {
+            Steam->NotifyJoinByCodeFailed(TEXT("Backend unavailable"));
+        }
+
+        return;
+    }
+    
     FNakamaReadStorageObjectId ReadObj;
     ReadObj.Collection = TEXT("private_matches");
     ReadObj.Key        = Code;

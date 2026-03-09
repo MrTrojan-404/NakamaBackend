@@ -48,7 +48,18 @@ void UNakamaBackendSubsystem::Login()
     // Auto-select provider. Swap this logic for platform detection as you scale.
     // e.g. #if PLATFORM_XBOXONE → LoginWithMicrosoft()
     //      #if PLATFORM_PS4     → LoginWithSony()
-    LoginWithSteam();
+
+    IOnlineSubsystem* OSS = Online::GetSubsystem(GetWorld());
+
+    if (OSS && OSS->GetSubsystemName() == "STEAM")
+    {
+        LoginWithSteam();
+    }
+    else
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Nakama] Steam not available. Falling back to Device auth."));
+        LoginWithDevice();
+    }
 }
 
 void UNakamaBackendSubsystem::LoginWithSteam()

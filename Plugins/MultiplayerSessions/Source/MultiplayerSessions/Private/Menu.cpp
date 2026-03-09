@@ -76,6 +76,8 @@ void UMenu::OnBridgeError(const FString& Error)
 
 void UMenu::SubmitJoinCode(const FString& Code)
 {
+	UE_LOG(LogTemp, Warning, TEXT("After SubmitJoinCode executed"));
+
 	if (Code.IsEmpty()) return;
 
 	if (IPrivateMatchInterface* Handler =
@@ -153,6 +155,14 @@ void UMenu::SubmitCodeButtonClicked()
 	JoinCodeInput->SetIsEnabled(false);
 	
 	SubmitJoinCode(Code);
+	if (Code.IsEmpty())
+	{
+		SubmitCodeButton->SetIsEnabled(true);
+		JoinCodeInput->SetIsEnabled(true);
+	}
+
+	UE_LOG(LogTemp, Warning, TEXT("After SubmitJoinCode called"));
+
 }
 
 void UMenu::OnCreateSession(bool bWasSuccessful)
@@ -261,15 +271,6 @@ void UMenu::OnFindSessions(const TArray<FOnlineSessionSearchResult>& SessionSear
 
 void UMenu::OnJoinSession(EOnJoinSessionCompleteResult::Type Result)
 {
-	// Restore UI immediately (covers every exit path)
-	if (SubmitCodeButton)
-		SubmitCodeButton->SetIsEnabled(true);
-
-	if (JoinCodeInput)
-	{
-		JoinCodeInput->SetText(FText::GetEmpty());
-		JoinCodeInput->SetIsEnabled(false);
-	}
 
 	if (GEngine)
 	{
@@ -289,6 +290,15 @@ void UMenu::OnJoinSession(EOnJoinSessionCompleteResult::Type Result)
 			PendingJoinRow = nullptr;
 		}
 
+		if (SubmitCodeButton)
+			SubmitCodeButton->SetIsEnabled(true);
+
+		if (JoinCodeInput)
+		{
+			JoinCodeInput->SetText(FText::GetEmpty());
+			JoinCodeInput->SetIsEnabled(true);
+		}
+		
 		FindSessionButton->SetIsEnabled(true);
 		return;
 	}
