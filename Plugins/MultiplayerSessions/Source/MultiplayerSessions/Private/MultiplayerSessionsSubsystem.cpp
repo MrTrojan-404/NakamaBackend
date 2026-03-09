@@ -173,6 +173,12 @@ void UMultiplayerSessionsSubsystem::CreateSession(int32 NumPublicConnections, FS
 	
 }
 
+void UMultiplayerSessionsSubsystem::NotifyJoinByCodeFailed(const FString& Error)
+{
+	MultiplayerOnJoinSessionComplete.Broadcast(
+	EOnJoinSessionCompleteResult::SessionDoesNotExist);
+}
+
 void UMultiplayerSessionsSubsystem::FindSession(int32 MaxSearchResults)
 {
 	IOnlineSubsystem* OSS = Online::GetSubsystem(GetWorld());
@@ -253,24 +259,61 @@ void UMultiplayerSessionsSubsystem::FindSession(int32 MaxSearchResults)
 
 void UMultiplayerSessionsSubsystem::FindSessionById(const FString& SessionId)
 {
-	if (!SessionInterface.IsValid()) return;
+	IOnlineSubsystem* OSS = Online::GetSubsystem(GetWorld());
+	if (!OSS)
+	{
+		MultiplayerOnFindSessionComplete.Broadcast({}, false);
+		return;
+	}
 
-	// We still do a normal search but filtered to max 1 result,
-	// then match the session ID in the callback
-	LastSessionSearch = MakeShared<FOnlineSessionSearch>();
-	LastSessionSearch->MaxSearchResults = 1000; // wide net to find the one we want
-	LastSessionSearch->bIsLanQuery = false;
+	SessionInterface = OSS->GetSessionInterface();
+	if (!SessionInterface.IsValid())
+	{
+		MultiplayerOnFindSessionComplete.Broadcast({}, false);
+		return;
+	}
+
+	// Clear old results immediately
+	CachedServerRows.Reset();
+	OnServerListUpdated.Broadcast(CachedServerRows, true);
+
+	FindSessionsCompleteDelegateHandle =
+		SessionInterface->AddOnFindSessionsCompleteDelegate_Handle(
+			FindSessionsCompleteDelegate);
+
+	LastSessionSearch = MakeShareable(new FOnlineSessionSearch());
+	LastSessionSearch->MaxSearchResults = 1000;
+	LastSessionSearch->bIsLanQuery = (OSS->GetSubsystemName() == "NULL");
+
 	LastSessionSearch->QuerySettings.Set(
 		SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);
 
-	// Store the target ID so the callback can match it
-	PendingJoinSessionId = SessionId;
-	bFindingBySessionId  = true;
+	const ULocalPlayer* LocalPlayer = GetWorld()->GetFirstLocalPlayerFromController();
+	if (!LocalPlayer)
+	{
+		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(
+			FindSessionsCompleteDelegateHandle);
+		MultiplayerOnFindSessionComplete.Broadcast({}, false);
+		return;
+	}
 
-	FindSessionsCompleteDelegateHandle = SessionInterface->AddOnFindSessionsCompleteDelegate_Handle(
-		FindSessionsCompleteDelegate);
+	const FUniqueNetIdRepl UniqueId = LocalPlayer->GetPreferredUniqueNetId();
+	if (!UniqueId.IsValid())
+	{
+		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(
+			FindSessionsCompleteDelegateHandle);
+		MultiplayerOnFindSessionComplete.Broadcast({}, false);
+		return;
+	}
 
-	SessionInterface->FindSessions(0, LastSessionSearch.ToSharedRef());
+	if (!SessionInterface->FindSessions(
+		*UniqueId.GetUniqueNetId(),
+		LastSessionSearch.ToSharedRef()))
+	{
+		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(
+			FindSessionsCompleteDelegateHandle);
+		MultiplayerOnFindSessionComplete.Broadcast({}, false);
+	}
 }
 
 void UMultiplayerSessionsSubsystem::JoinSession(const FOnlineSessionSearchResult& SessionResult)
@@ -567,11 +610,19 @@ FServerRowInfo UMultiplayerSessionsSubsystem::MakeServerRowInfoFromSearchResult(
 	Row.PingMs = Result.PingInMs;
 
 	// Host user
+	// Host user
+	Row.HostUserName = Result.Session.OwningUserName;
+
 	FString DisplayName;
 	if (Result.Session.SessionSettings.Get(FName("HostDisplayName"), DisplayName))
+	{
 		Row.NakamaDisplayName = DisplayName;
+	}
 	else
+	{
 		Row.NakamaDisplayName = Row.HostUserName;
+	}
+	
 	return Row;
 }
 

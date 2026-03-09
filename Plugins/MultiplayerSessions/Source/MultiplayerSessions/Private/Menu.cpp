@@ -54,6 +54,24 @@ void UMenu::MenuSetup(int32 NumberOfPublicConnections, FString TypeOfMatch, FStr
 		MultiplayerSessionsSubsystem->OnServerListUpdated.AddDynamic(
 			this, &UMenu::OnServerListUpdatedHandler);
 	}
+	
+}
+
+void UMenu::OnBridgeError(const FString& Error)
+{
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(-1, 5.f, FColor::Red, Error);
+	}
+
+	if (SubmitCodeButton)
+		SubmitCodeButton->SetIsEnabled(true);
+
+	if (JoinCodeInput)
+	{
+		JoinCodeInput->SetText(FText::GetEmpty());
+		JoinCodeInput->SetIsEnabled(true);
+	}
 }
 
 void UMenu::SubmitJoinCode(const FString& Code)
@@ -132,7 +150,8 @@ void UMenu::SubmitCodeButtonClicked()
 
 	// Disable button while join is in progress — OnJoinSession re-enables on failure
 	SubmitCodeButton->SetIsEnabled(false);
-
+	JoinCodeInput->SetIsEnabled(false);
+	
 	SubmitJoinCode(Code);
 }
 
@@ -242,128 +261,94 @@ void UMenu::OnFindSessions(const TArray<FOnlineSessionSearchResult>& SessionSear
 
 void UMenu::OnJoinSession(EOnJoinSessionCompleteResult::Type Result)
 {
+	// Restore UI immediately (covers every exit path)
+	if (SubmitCodeButton)
+		SubmitCodeButton->SetIsEnabled(true);
+
+	if (JoinCodeInput)
+	{
+		JoinCodeInput->SetText(FText::GetEmpty());
+		JoinCodeInput->SetIsEnabled(false);
+	}
+
 	if (GEngine)
 	{
 		GEngine->AddOnScreenDebugMessage(
-		-1, 15.f, FColor::Cyan,
-		FString::Printf(TEXT("OnJoinSession called. Result = %d"), (int32)Result));
-	}
-	
-	IOnlineSessionPtr SessionInterface = Online::GetSubsystem(GetWorld())->GetSessionInterface();
-
-	if (!SessionInterface.IsValid())
-	{
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(
-			-1, 15.f, FColor::Red, TEXT("OnJoinSession: SessionInterface INVALID"));
-		}
-		return;
-	}
-	
-	if (SessionInterface.IsValid())
-	{
-		FString Address;
-		bool bGotAddress = SessionInterface->GetResolvedConnectString(NAME_GameSession, Address);
-		APlayerController* PlayerController = GetGameInstance()->GetFirstLocalPlayerController();
-
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(
-			-1, 15.f,
-			bGotAddress ? FColor::Green : FColor::Red,
-			FString::Printf(TEXT("GetResolvedConnectString: %s"),
-				bGotAddress ? TEXT("TRUE") : TEXT("FALSE")));
-
-			GEngine->AddOnScreenDebugMessage(
-			-1, 15.f, FColor::Yellow,
-			FString::Printf(TEXT("Resolved Address: %s"), *Address));
-		}
-
-		if (!bGotAddress || Address.IsEmpty())
-		{
-			if (GEngine)
-			{
-				GEngine->AddOnScreenDebugMessage(
-				-1, 15.f, FColor::Red,
-				TEXT("Join failed: No valid connect string"));
-			}
-			return;
-		}
-
-		if (!PlayerController)
-		{
-			if (GEngine)
-			{
-				GEngine->AddOnScreenDebugMessage(
-				-1, 15.f, FColor::Red,
-				TEXT("OnJoinSession: PlayerController is NULL"));
-			}
-			return;
-		}
-		if (PlayerController)
-		{
-			
-			if (GEngine)
-			{
-				GEngine->AddOnScreenDebugMessage(
-				-1,
-				15.f,
-				FColor::Cyan,
-				FString::Printf(TEXT("Menu->OnJoinSession->ClientTravel Address: %s"), *Address));
-				
-			}
-			PlayerController->ClientTravel(Address, TRAVEL_Absolute);
-
-			if (GEngine)
-			{
-				GEngine->AddOnScreenDebugMessage(
-				-1, 15.f, FColor::Yellow,
-				FString::Printf(TEXT("After ClientTravel - NetDriver: %s"),
-					(GetWorld() && GetWorld()->GetNetDriver()) ? TEXT("VALID") : TEXT("NULL")));
-			}
-			
-			if (GEngine)
-			{
-				GEngine->AddOnScreenDebugMessage(
-				-1,
-				15.f,
-				FColor::Cyan,
-				FString::Printf(TEXT("Menu->OnJoinSession->ClientTravel Called- Did we travel?: %s"), *Address));
-				
-			}
-		}
+			-1, 15.f, FColor::Cyan,
+			FString::Printf(TEXT("OnJoinSession called. Result = %d"), (int32)Result));
 	}
 
+	// If join failed, restore UI state and exit
 	if (Result != EOnJoinSessionCompleteResult::Success)
 	{
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(
-			-1,
-			15.f,
-			FColor::Cyan,
-			FString::Printf(TEXT("Join Failed, Re-Enable Join Button")));
-				
-		}
-		// Unlock server list
 		SetServerListEnabled(true);
-		
-		// Re-enable the row that was clicked
+
 		if (PendingJoinRow)
 		{
 			PendingJoinRow->SetJoiningState(false);
 			PendingJoinRow = nullptr;
 		}
+
 		FindSessionButton->SetIsEnabled(true);
-
-		if (SubmitCodeButton)
-			SubmitCodeButton->SetIsEnabled(true);
-
-		if (JoinCodeInput)
-			JoinCodeInput->SetText(FText::GetEmpty());
-		
+		return;
 	}
+
+	IOnlineSubsystem* OSS = Online::GetSubsystem(GetWorld());
+	if (!OSS)
+	{
+		UE_LOG(LogTemp, Error, TEXT("OnJoinSession: OnlineSubsystem is null"));
+		return;
+	}
+
+	IOnlineSessionPtr SessionInterface = OSS->GetSessionInterface();
+	if (!SessionInterface.IsValid())
+	{
+		if (GEngine)
+		{
+			GEngine->AddOnScreenDebugMessage(
+				-1, 15.f, FColor::Red,
+				TEXT("OnJoinSession: SessionInterface INVALID"));
+		}
+		return;
+	}
+
+	FString Address;
+	bool bGotAddress = SessionInterface->GetResolvedConnectString(NAME_GameSession, Address);
+
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(
+			-1, 15.f,
+			bGotAddress ? FColor::Green : FColor::Red,
+			FString::Printf(TEXT("GetResolvedConnectString: %s"),
+				bGotAddress ? TEXT("TRUE") : TEXT("FALSE")));
+
+		GEngine->AddOnScreenDebugMessage(
+			-1, 15.f, FColor::Yellow,
+			FString::Printf(TEXT("Resolved Address: %s"), *Address));
+	}
+
+	if (!bGotAddress || Address.IsEmpty())
+	{
+		UE_LOG(LogTemp, Error, TEXT("Join succeeded but connect string invalid"));
+		return;
+	}
+
+	APlayerController* PlayerController = GetGameInstance()->GetFirstLocalPlayerController();
+	if (!PlayerController)
+	{
+		UE_LOG(LogTemp, Error, TEXT("OnJoinSession: PlayerController NULL"));
+		return;
+	}
+
+	if (GEngine)
+	{
+		GEngine->AddOnScreenDebugMessage(
+			-1, 15.f, FColor::Cyan,
+			FString::Printf(TEXT("ClientTravel to %s"), *Address));
+	}
+
+	PlayerController->ClientTravel(Address, TRAVEL_Absolute);
 }
 
 void UMenu::OnDestroySession(bool bWasSuccessful)
@@ -430,6 +415,8 @@ void UMenu::MenuTeardown()
 		}
 	}
 }
+
+
 
 void UMenu::SpawnServerRows(UScrollBox* TargetScrollBox)
 {

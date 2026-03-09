@@ -26,4 +26,5 @@ public:
 	virtual void RequestRegisterMatch(const FString& SessionId) = 0;
 	virtual void RequestUnregisterMatch() = 0;
 
+	virtual void NotifyJoinByCodeFailed(const FString& Error) = 0;
 };

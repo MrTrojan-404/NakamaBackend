@@ -99,6 +99,7 @@ void UGameBridgeSubsystem::RegisterPrivateMatch(const FString& SteamSessionId)
     if (!Nakama || !Nakama->IsLoggedIn()) return;
 
     ActiveMatchCode = GenerateCode();
+    
 
     TSharedPtr<FJsonObject> Json = MakeShared<FJsonObject>();
     Json->SetStringField(TEXT("steam_session_id"), SteamSessionId);
@@ -156,7 +157,11 @@ void UGameBridgeSubsystem::HandlePrivateMatchReadSuccess(const FNakamaStorageObj
 {
     if (Objects.Objects.Num() == 0)
     {
-        OnBridgeError.Broadcast(TEXT("Invalid or expired match code."));
+        if (UMultiplayerSessionsSubsystem* Steam = GetSteam())
+        {
+            Steam->NotifyJoinByCodeFailed("Invalid or expired match code.");
+        }
+
         return;
     }
 
@@ -166,7 +171,11 @@ void UGameBridgeSubsystem::HandlePrivateMatchReadSuccess(const FNakamaStorageObj
 
     if (!FJsonSerializer::Deserialize(Reader, Json) || !Json.IsValid())
     {
-        OnBridgeError.Broadcast(TEXT("Malformed match data."));
+        if (UMultiplayerSessionsSubsystem* Steam = GetSteam())
+        {
+            Steam->NotifyJoinByCodeFailed("Malformed match data.");
+        }
+
         return;
     }
 
@@ -175,7 +184,10 @@ void UGameBridgeSubsystem::HandlePrivateMatchReadSuccess(const FNakamaStorageObj
 
     if (SteamSessionId.IsEmpty())
     {
-        OnBridgeError.Broadcast(TEXT("No session ID in match data."));
+        if (UMultiplayerSessionsSubsystem* Steam = GetSteam())
+        {
+            Steam->NotifyJoinByCodeFailed("No session ID in match data.");
+        }
         return;
     }
 
@@ -213,7 +225,11 @@ void UGameBridgeSubsystem::UnregisterPrivateMatch()
     TFunction<void(const FNakamaError&)> ErrorCallback = [this](const FNakamaError& Err)
     {
         UE_LOG(LogTemp, Error, TEXT("[Bridge] Failed to unregister match: %s"), *Err.Message);
-        OnBridgeError.Broadcast(Err.Message);
+        //OnBridgeError.Broadcast(Err.Message);
+        if (UMultiplayerSessionsSubsystem* Steam = GetSteam())
+        {
+            Steam->NotifyJoinByCodeFailed(Err.Message);
+        }
     };
 
     Nakama->GetClient()->DeleteStorageObjects(
@@ -290,7 +306,11 @@ void UGameBridgeSubsystem::UpdatePresence(const FString& StatusMessage)
     TFunction<void(const FNakamaRtError&)> ErrorCallback = [this](const FNakamaRtError& Err)
     {
         UE_LOG(LogTemp, Error, TEXT("[Bridge] Presence update failed: %s"), *Err.Message);
-        OnBridgeError.Broadcast(Err.Message);
+
+        if (UMultiplayerSessionsSubsystem* Steam = GetSteam())
+        {
+            Steam->NotifyJoinByCodeFailed(Err.Message);
+        }
     };
 
     Nakama->GetRealtimeClient()->UpdateStatus(StatusMessage, SuccessCallback, ErrorCallback);
@@ -367,5 +387,9 @@ TArray<FString> UGameBridgeSubsystem::GetSteamFriendIds() const
 void UGameBridgeSubsystem::HandleStorageError(const FNakamaError& Error)
 {
     UE_LOG(LogTemp, Error, TEXT("[Bridge] Error: %s"), *Error.Message);
-    OnBridgeError.Broadcast(Error.Message);
+   // OnBridgeError.Broadcast(Error.Message);
+    if (UMultiplayerSessionsSubsystem* Steam = GetSteam())
+    {
+        Steam->NotifyJoinByCodeFailed(Error.Message);
+    }
 }

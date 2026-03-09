@@ -5,6 +5,7 @@
 #include "CoreMinimal.h"
 #include "ServerRowWidget.h"
 #include "Blueprint/UserWidget.h"
+#include "Interface/BridgeErrorInterface.h"
 #include "Interfaces/OnlineSessionInterface.h"
 #include "Menu.generated.h"
 
@@ -13,16 +14,17 @@ class UScrollBox;
  * 
  */
 UCLASS()
-class MULTIPLAYERSESSIONS_API UMenu : public UUserWidget
+class MULTIPLAYERSESSIONS_API UMenu : public UUserWidget, public IBridgeErrorInterface
 {
 	GENERATED_BODY()
 
 public:
 	UFUNCTION(BlueprintCallable)
 	void MenuSetup(int32 NumberOfPublicConnections = 4, FString TypeOfMatch = FString(TEXT("FreeForAll")), FString LobbyPath = FString(TEXT("/Game/ThirdPerson/Maps/Lobby")));
-
+	
 	void SetServerListEnabled(bool bEnabled);
 
+	virtual void OnBridgeError(const FString& Error) override;
 protected:
 	virtual bool Initialize() override;
 	virtual void NativeDestruct() override;
@@ -84,6 +86,9 @@ private:
 	UPROPERTY(meta = (BindWidgetOptional))
 	UScrollBox* ServerListScrollBox;
 
+	TArray<FServerRowInfo> PendingServerRows;
+	int32 SpawnIndex = 0;
+	
 	// Spawns server rows into the provided ScrollBox. You can call SpawnServerRows(ServerListScrollBox);
 	// after you receive OnServerListUpdated or OnFindSession callbacks.
 	UFUNCTION()

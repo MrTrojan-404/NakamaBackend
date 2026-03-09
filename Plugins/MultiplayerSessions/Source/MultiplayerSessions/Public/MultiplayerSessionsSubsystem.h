@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Interface/PrivateMatchInterface.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "Interfaces/OnlineSessionInterface.h"
 #include "MultiplayerSessionsSubsystem.generated.h"
@@ -37,7 +38,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnServerListUpdated, const TArray<
 
 
 UCLASS()
-class MULTIPLAYERSESSIONS_API UMultiplayerSessionsSubsystem : public UGameInstanceSubsystem
+class MULTIPLAYERSESSIONS_API UMultiplayerSessionsSubsystem : public UGameInstanceSubsystem, public IPrivateMatchInterface
 {
 	GENERATED_BODY()
 public:
@@ -50,6 +51,9 @@ public:
 	void JoinSession(const FOnlineSessionSearchResult& SessionResult);
 	void DestroySession();
 	void StartSession();
+
+	virtual void NotifyJoinByCodeFailed(const FString& Error) override;
+	
 
 	//Our own custom delegates for the Menu class to bind callbacks to
 	FMultiplayerOnCreateSessionComplete MultiplayerOnCreateSessionComplete;
