@@ -8,6 +8,9 @@
 #include "Components/ScrollBox.h"
 #include "OnlineSubsystemUtils.h"
 #include "ServerRowWidget.h"
+#include "Components/EditableTextBox.h"
+#include "Components/TextBlock.h"
+#include "Interface/PrivateMatchInterface.h"
 
 void UMenu::MenuSetup(int32 NumberOfPublicConnections, FString TypeOfMatch, FString LobbyPath)
 {
@@ -51,7 +54,22 @@ void UMenu::MenuSetup(int32 NumberOfPublicConnections, FString TypeOfMatch, FStr
 		MultiplayerSessionsSubsystem->OnServerListUpdated.AddDynamic(
 			this, &UMenu::OnServerListUpdatedHandler);
 	}
-	
+}
+
+void UMenu::SubmitJoinCode(const FString& Code)
+{
+	if (Code.IsEmpty()) return;
+
+	if (IPrivateMatchInterface* Handler =
+		UMultiplayerSessionsSubsystem::GetPrivateMatchInterface())
+	{
+		Handler->RequestJoinByCode(Code);
+		// Result flows back automatically: Bridge→MSS→MultiplayerOnJoinSessionComplete→OnJoinSession→ClientTravel
+	}
+	else
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Menu] No private match handler registered"));
+	}
 }
 
 void UMenu::SetServerListEnabled(bool bEnabled)
@@ -69,19 +87,21 @@ void UMenu::SetServerListEnabled(bool bEnabled)
 
 bool UMenu::Initialize()
 {
-	if (!Super::Initialize())
-	{
-		return false;
-	}
-	if (HostButton)
-	{
-		HostButton->OnClicked.AddDynamic(this, &ThisClass::UMenu::HostButtonClicked);
-	}
-	if (FindSessionButton)
-	{
-		FindSessionButton->OnClicked.AddDynamic(this, &ThisClass::FindSessionButtonClicked);
-	}
+	if (!Super::Initialize()) return false;
 
+	if (HostButton)
+		HostButton->OnClicked.AddDynamic(this, &ThisClass::HostButtonClicked);
+
+	if (FindSessionButton)
+		FindSessionButton->OnClicked.AddDynamic(this, &ThisClass::FindSessionButtonClicked);
+	
+	if (PrivateToggleButton)
+		PrivateToggleButton->OnClicked.AddDynamic(this, &ThisClass::PrivateToggleClicked);
+
+	if (SubmitCodeButton)
+		SubmitCodeButton->OnClicked.AddDynamic(this, &ThisClass::SubmitCodeButtonClicked);
+	
+	RefreshPrivacyText(); // set initial text
 	return true;
 }
 
@@ -90,6 +110,30 @@ void UMenu::NativeDestruct()
 	MenuTeardown();
 	Super::NativeDestruct();
 	
+}
+
+void UMenu::SubmitCodeButtonClicked()
+{
+	if (!JoinCodeInput) return;
+
+	FString Code = JoinCodeInput->GetText().ToString().TrimStartAndEnd().ToUpper();
+
+	if (Code.IsEmpty())
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Menu] Join code is empty"));
+		return;
+	}
+
+	if (Code.Len() != 6)
+	{
+		UE_LOG(LogTemp, Warning, TEXT("[Menu] Join code must be 6 characters"));
+		return;
+	}
+
+	// Disable button while join is in progress — OnJoinSession re-enables on failure
+	SubmitCodeButton->SetIsEnabled(false);
+
+	SubmitJoinCode(Code);
 }
 
 void UMenu::OnCreateSession(bool bWasSuccessful)
@@ -117,8 +161,19 @@ void UMenu::OnCreateSession(bool bWasSuccessful)
 				FString::Printf(TEXT("Menu->OnCreateSession->ServerTravel")));
 				
 			}
-			World->ServerTravel(PathToLobby);
+			// Register private match BEFORE travel so the code is ready in lobby
+			if (bHostPrivate)
+			{
+				if (IPrivateMatchInterface* Handler =
+					UMultiplayerSessionsSubsystem::GetPrivateMatchInterface())
+				{
+					FString SessionId = MultiplayerSessionsSubsystem->GetCurrentSessionId();
+					Handler->RequestRegisterMatch(SessionId);
+				}
+			}
 
+			GetWorld()->ServerTravel(PathToLobby);
+			
 			if (GEngine)
 			{
 				GEngine->AddOnScreenDebugMessage(
@@ -146,6 +201,19 @@ void UMenu::OnCreateSession(bool bWasSuccessful)
 	
 }
 
+void UMenu::PrivateToggleClicked()
+{
+	bHostPrivate = !bHostPrivate;
+	RefreshPrivacyText();
+}
+
+void UMenu::RefreshPrivacyText()
+{
+	if (PrivacyStateText)
+		PrivacyStateText->SetText(FText::FromString(
+			bHostPrivate ? TEXT("Private") : TEXT("Public")));
+}
+
 void UMenu::OnFindSessions(const TArray<FOnlineSessionSearchResult>& SessionSearchResults, bool bWasSuccessful)
 {
 	if (GEngine)
@@ -169,45 +237,6 @@ void UMenu::OnFindSessions(const TArray<FOnlineSessionSearchResult>& SessionSear
 		FindSessionButton->SetIsEnabled(true);
 		
 	}
-
-	// Auto-Join Disabled for now - Server Browser Developement----------------------------------------
-
-	/*for (auto Result : SessionSearchResults)
-	{
-		FString SettingsValue;
-		Result.Session.SessionSettings.Get(FName("MatchType"), SettingsValue);
-		FString ID = Result.GetSessionIdStr();
-		FString User = Result.Session.OwningUserName;
-		Result.Session.SessionSettings.bUsesPresence = true;
-		Result.Session.SessionSettings.bUseLobbiesIfAvailable = true;
-	
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(
-			-1,
-			15.f,
-			FColor::Cyan,
-			FString::Printf(TEXT("ID : %s, User : %s"), *ID, *User)
-			);
-		}
-
-		if (SettingsValue == MatchType)
-		{
-			if (GEngine)
-			{
-				GEngine->AddOnScreenDebugMessage(
-				-1,
-				15.f,
-				FColor::Cyan,
-				FString::Printf(TEXT("Menu->OnFindSessions-> MSS->JoinSession")));
-				
-			}
-			MultiplayerSessionsSubsystem->JoinSession(Result);
-			
-			return;
-		}
-	}*/
-		
 }	
 
 
@@ -327,6 +356,13 @@ void UMenu::OnJoinSession(EOnJoinSessionCompleteResult::Type Result)
 			PendingJoinRow = nullptr;
 		}
 		FindSessionButton->SetIsEnabled(true);
+
+		if (SubmitCodeButton)
+			SubmitCodeButton->SetIsEnabled(true);
+
+		if (JoinCodeInput)
+			JoinCodeInput->SetText(FText::GetEmpty());
+		
 	}
 }
 
@@ -340,31 +376,18 @@ void UMenu::OnStartSession(bool bWasSuccessful)
 
 void UMenu::HostButtonClicked()
 {
-	if (GEngine)
-	{
-		GEngine->AddOnScreenDebugMessage(
-		-1,
-		15.f,
-		FColor::Cyan,
-		FString::Printf(TEXT("HostButton Clicked")));
-				
-	}
 	HostButton->SetIsEnabled(false);
 	if (MultiplayerSessionsSubsystem)
 	{
-		MultiplayerSessionsSubsystem->CreateSession(NumPublicConnections, MatchType);
-		if (GEngine)
-		{
-			GEngine->AddOnScreenDebugMessage(
-			-1,
-			15.f,
-			FColor::Cyan,
-			FString::Printf(TEXT("Menu->MSS- CreateSession Called")));
-				
-		}
-	}	
-}
+		MultiplayerSessionsSubsystem->CreateSession(
+			NumPublicConnections, MatchType, bHostPrivate);
 
+		if (GEngine)
+			GEngine->AddOnScreenDebugMessage(
+				-1, 15.f, FColor::Cyan,
+				TEXT("Menu->MSS- CreateSession Called"));
+	}
+}
 void UMenu::FindSessionButtonClicked()
 {
 	if (GEngine)

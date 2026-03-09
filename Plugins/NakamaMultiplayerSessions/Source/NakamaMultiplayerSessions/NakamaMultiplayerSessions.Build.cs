@@ -28,7 +28,7 @@ public class NakamaMultiplayerSessions : ModuleRules
 				"Core", 
 				"OnlineSubsystem",
 				"OnlineSubsystemSteam",
-				"NakamaUnreal"
+				"NakamaUnreal", "MultiplayerSessions"
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);
@@ -41,6 +41,10 @@ public class NakamaMultiplayerSessions : ModuleRules
 				"Engine",
 				"Slate",
 				"SlateCore",
+				"Json",
+				"JsonUtilities",
+				"UMG"
+				
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);

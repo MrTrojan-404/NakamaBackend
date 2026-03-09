@@ -21,11 +21,10 @@
 			"LoadingPhase": "Default"
 		}
 	],
-  
+
   "Plugins": [
-    {
-      "Name": "Nakama",
-      "Enabled": true
-    }
+    { "Name": "OnlineSubsystem", "Enabled": true },
+    { "Name": "OnlineSubsystemSteam", "Enabled": true },
+    { "Name": "MultiplayerSessions", "Enabled": true }
   ]
 }

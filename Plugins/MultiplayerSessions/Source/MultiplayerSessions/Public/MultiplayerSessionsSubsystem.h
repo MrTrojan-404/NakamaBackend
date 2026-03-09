@@ -7,6 +7,7 @@
 #include "Interfaces/OnlineSessionInterface.h"
 #include "MultiplayerSessionsSubsystem.generated.h"
 
+class IPrivateMatchInterface;
 //Declaring our own system delegates for the Menu class to bind callbacks to
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FMultiplayerOnCreateSessionComplete, bool, bWasSuccessful);
 DECLARE_MULTICAST_DELEGATE_TwoParams(FMultiplayerOnFindSessionComplete, const TArray<FOnlineSessionSearchResult>& SessionSearchResults, bool bWasSuccessful);
@@ -27,6 +28,7 @@ struct FServerRowInfo
 	UPROPERTY(BlueprintReadOnly) int32 MaxPlayers = 0;
 	UPROPERTY(BlueprintReadOnly) int32 PingMs = -1;
 	UPROPERTY(BlueprintReadOnly) FString HostUserName;
+	UPROPERTY(BlueprintReadOnly) FString NakamaDisplayName;
 	UPROPERTY(BlueprintReadOnly) FString SessionId;
 
 	// Can add other fields (tags, custom settings)
@@ -43,7 +45,7 @@ public:
 
 	//To Handle Session functionality, Menu class will call these
 
-	void CreateSession(int32 NumPublicConnections, FString MatchType);
+	void CreateSession(int32 NumPublicConnections, FString MatchType, bool bPrivate = false);
 	void FindSession(int32 MaxSearchResults);
 	void JoinSession(const FOnlineSessionSearchResult& SessionResult);
 	void DestroySession();
@@ -58,6 +60,7 @@ public:
 	
 	int32 DesiredNumPublicConnections{};
 	FString DesiredMatchType{};
+	bool IsSessionPrivate() const { return bLastSessionWasPrivate; }
 
 	UPROPERTY(BlueprintAssignable)
 	FOnServerListUpdated OnServerListUpdated;
@@ -71,6 +74,17 @@ public:
 
 	UFUNCTION(BlueprintCallable)
 	const TArray<FServerRowInfo>& GetCachedServerRows() const { return CachedServerRows; }
+
+	// Finds a specific session by its ID string, then fires MultiplayerOnJoinSessionComplete
+	// Used by GameBridgeSubsystem after resolving a private match code
+	void FindSessionById(const FString& SessionId);
+
+	// Called by Bridge after Nakama account loads
+	void SetHostDisplayName(const FString& Name) { PendingHostDisplayName = Name; }
+
+	FString GetCurrentSessionId() const;
+	FOnlineSessionSettings* GetCurrentSessionSettings() const;
+	
 protected:
 	//Internal Callbacks for our Delegates we'll add to the online session interface delegates list
 	//These don't need to be called outside the classes
@@ -95,9 +109,9 @@ private:
 	FDelegateHandle FindSessionsCompleteDelegateHandle;
 	FOnJoinSessionCompleteDelegate JoinSessionCompleteDelegate;
 	FDelegateHandle JoinSessionCompleteDelegateHandle;
-	FOnStartSessionCompleteDelegate StartSessionCompleteDelegate;
+	FOnStartSessionCompleteDelegate StartSessionCompleteDelegate; 
 	FDelegateHandle StartSessionCompleteDelegateHandle;
-	FOnDestroySessionCompleteDelegate DestroySessionCompleteDelegate;
+	FOnDestroySessionCompleteDelegate DestroySessionCompleteDelegate; 
 	FDelegateHandle DestroySessionCompleteDelegateHandle;
 
 	bool bCreateSessionOnDestroy{false};
@@ -106,6 +120,26 @@ private:
 
 	//Function to Create info about server for UI from SearchResult
 	static FServerRowInfo MakeServerRowInfoFromSearchResult(const FOnlineSessionSearchResult& Result);
-	
+
 	TArray<FServerRowInfo> CachedServerRows;
+
+	FString PendingJoinSessionId;
+	bool    bFindingBySessionId = false;
+	bool bLastSessionWasPrivate = false;
+	
+	FString PendingHostDisplayName;
+
+public:
+	static void RegisterPrivateMatchInterface(IPrivateMatchInterface* Handler)
+	{
+		PrivateMatchHandler = Handler;
+	}
+	static IPrivateMatchInterface* GetPrivateMatchInterface()
+	{
+		return PrivateMatchHandler;
+	}
+
+private:
+	static IPrivateMatchInterface* PrivateMatchHandler;
+
 };

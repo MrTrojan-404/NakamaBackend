@@ -36,10 +36,14 @@ protected:
 	void OnDestroySession(bool bWasSuccessful);
 	UFUNCTION()
 	void OnStartSession(bool bWasSuccessful);
-
+	
 	// Server row widget class to spawn (set in Blueprint or in code)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Menu")
 	TSubclassOf<UServerRowWidget> ServerRowWidgetClass;
+
+	// Called from UMG join-by-code button
+	UFUNCTION(BlueprintCallable, Category="Menu|PrivateMatch")
+	void SubmitJoinCode(const FString& Code);
 	
 private:
 	UPROPERTY(meta = (BindWidget))
@@ -47,6 +51,15 @@ private:
 	UPROPERTY(meta = (BindWidget))
 	UButton* FindSessionButton;
 
+	UPROPERTY(meta = (BindWidgetOptional))
+	class UEditableTextBox* JoinCodeInput;
+	
+	UPROPERTY(meta = (BindWidgetOptional))
+	UButton* SubmitCodeButton;
+
+	UFUNCTION()
+	void SubmitCodeButtonClicked();
+	
 	UFUNCTION()
 	void HostButtonClicked();
 	UFUNCTION()
@@ -85,4 +98,19 @@ private:
 
 	UPROPERTY()
 	UServerRowWidget* PendingJoinRow = nullptr;
+
+	// Optional toggle button in UMG — if not bound, defaults to public
+	UPROPERTY(meta = (BindWidgetOptional))
+	UButton* PrivateToggleButton;
+
+	// Displays current state: "Public" / "Private"
+	UPROPERTY(meta = (BindWidgetOptional))
+	UTextBlock* PrivacyStateText;
+
+	bool bHostPrivate = false;
+
+	UFUNCTION()
+	void PrivateToggleClicked();
+
+	void RefreshPrivacyText();
 };

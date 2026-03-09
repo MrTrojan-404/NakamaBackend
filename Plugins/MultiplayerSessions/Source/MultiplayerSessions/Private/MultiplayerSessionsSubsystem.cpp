@@ -7,21 +7,25 @@
 #include "OnlineSubsystemUtils.h"
 #include "Online/OnlineSessionNames.h"
 
+IPrivateMatchInterface* UMultiplayerSessionsSubsystem::PrivateMatchHandler = nullptr;
+
+
 UMultiplayerSessionsSubsystem::UMultiplayerSessionsSubsystem():
 	CreateSessionCompleteDelegate(FOnCreateSessionCompleteDelegate::CreateUObject(this, &ThisClass::OnCreateSessionComplete)),
 	FindSessionsCompleteDelegate(FOnFindSessionsCompleteDelegate::CreateUObject(this, &ThisClass::OnFindSessionComplete)),
 	JoinSessionCompleteDelegate(FOnJoinSessionCompleteDelegate::CreateUObject(this, &ThisClass::OnJoinSessionComplete)),
-	DestroySessionCompleteDelegate(FOnDestroySessionCompleteDelegate::CreateUObject(this, &ThisClass::OnDestroySessionComplete)),
-	StartSessionCompleteDelegate(FOnStartSessionCompleteDelegate::CreateUObject(this, &ThisClass::OnStartSessionComplete))
+	StartSessionCompleteDelegate(FOnStartSessionCompleteDelegate::CreateUObject(this, &ThisClass::OnStartSessionComplete)),
+	DestroySessionCompleteDelegate(FOnDestroySessionCompleteDelegate::CreateUObject(this, &ThisClass::OnDestroySessionComplete))
 {
 	
 }
 
-void UMultiplayerSessionsSubsystem::CreateSession(int32 NumPublicConnections, FString MatchType)
+void UMultiplayerSessionsSubsystem::CreateSession(int32 NumPublicConnections, FString MatchType, bool bPrivate)
 {
 	
 	DesiredNumPublicConnections = NumPublicConnections;
 	DesiredMatchType = MatchType;
+	bLastSessionWasPrivate = bPrivate;
 
 	IOnlineSubsystem* OSS = Online::GetSubsystem(GetWorld());
 	if (!OSS)
@@ -98,17 +102,26 @@ void UMultiplayerSessionsSubsystem::CreateSession(int32 NumPublicConnections, FS
 		TEXT("CreateSession: Binding CreateSessionComplete delegate"));
 	}
 	
+	
 	LastSessionSettings = MakeShareable(new FOnlineSessionSettings());
-    LastSessionSettings->bIsLANMatch = (OSS->GetSubsystemName() == "NULL");
-	LastSessionSettings->NumPublicConnections = NumPublicConnections;
-	LastSessionSettings->bAllowJoinInProgress = true;
-	LastSessionSettings->bAllowJoinViaPresence = true;
-	LastSessionSettings->bShouldAdvertise = true;
-	LastSessionSettings->bUsesPresence = true;
-	LastSessionSettings->bUseLobbiesIfAvailable = true;
+	LastSessionSettings->bIsLANMatch             = (OSS->GetSubsystemName() == "NULL");
+	LastSessionSettings->NumPublicConnections     = NumPublicConnections;
+	LastSessionSettings->bAllowJoinInProgress     = true;
+	LastSessionSettings->bAllowJoinViaPresence    = !bPrivate;  // ← 
+	LastSessionSettings->bShouldAdvertise         = !bPrivate;  // ← private = not advertised
+	LastSessionSettings->bUsesPresence            = true;
+	LastSessionSettings->bUseLobbiesIfAvailable   = true;
 	LastSessionSettings->Set(FName("MatchType"), MatchType, EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
-	LastSessionSettings->BuildUniqueId = 1;
+	LastSessionSettings->BuildUniqueId            = 1;
+	LastSessionSettings->Set(FName("MatchType"), MatchType,
+		EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
 
+	//store host's display name so server browser can show it
+	if (!PendingHostDisplayName.IsEmpty())
+	{
+		LastSessionSettings->Set(FName("HostDisplayName"), PendingHostDisplayName,
+			EOnlineDataAdvertisementType::ViaOnlineServiceAndPing);
+	}
 	const ULocalPlayer* LocalPlayer = GetWorld()->GetFirstLocalPlayerFromController();
 	if (!LocalPlayer)
 	{
@@ -238,7 +251,27 @@ void UMultiplayerSessionsSubsystem::FindSession(int32 MaxSearchResults)
 	
 }
 
+void UMultiplayerSessionsSubsystem::FindSessionById(const FString& SessionId)
+{
+	if (!SessionInterface.IsValid()) return;
 
+	// We still do a normal search but filtered to max 1 result,
+	// then match the session ID in the callback
+	LastSessionSearch = MakeShared<FOnlineSessionSearch>();
+	LastSessionSearch->MaxSearchResults = 1000; // wide net to find the one we want
+	LastSessionSearch->bIsLanQuery = false;
+	LastSessionSearch->QuerySettings.Set(
+		SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);
+
+	// Store the target ID so the callback can match it
+	PendingJoinSessionId = SessionId;
+	bFindingBySessionId  = true;
+
+	FindSessionsCompleteDelegateHandle = SessionInterface->AddOnFindSessionsCompleteDelegate_Handle(
+		FindSessionsCompleteDelegate);
+
+	SessionInterface->FindSessions(0, LastSessionSearch.ToSharedRef());
+}
 
 void UMultiplayerSessionsSubsystem::JoinSession(const FOnlineSessionSearchResult& SessionResult)
 {
@@ -360,13 +393,17 @@ void UMultiplayerSessionsSubsystem::OnCreateSessionComplete(FName SessionName, b
 
 void UMultiplayerSessionsSubsystem::OnFindSessionComplete(bool bWasSuccessful)
 {
-
 	IOnlineSubsystem* OSS = Online::GetSubsystem(GetWorld());
 	SessionInterface = OSS ? OSS->GetSessionInterface() : nullptr;
 	
 	if (SessionInterface.IsValid())
 	{
 		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(FindSessionsCompleteDelegateHandle);
+	}
+	if (SessionInterface)
+	{
+		SessionInterface->ClearOnFindSessionsCompleteDelegate_Handle(
+			FindSessionsCompleteDelegateHandle);
 	}
 	// Defensive: ensure search pointer is valid
 	if (!LastSessionSearch.IsValid())
@@ -382,6 +419,38 @@ void UMultiplayerSessionsSubsystem::OnFindSessionComplete(bool bWasSuccessful)
 		MultiplayerOnFindSessionComplete.Broadcast(TArray<FOnlineSessionSearchResult>(), false);
 		return;
 	}
+
+	if (bFindingBySessionId)
+	{
+		bFindingBySessionId = false;
+
+		if (bWasSuccessful && LastSessionSearch->SearchResults.Num() > 0)
+		{
+			// Find the specific session matching our target ID
+			for (const FOnlineSessionSearchResult& Result : LastSessionSearch->SearchResults)
+			{
+				if (Result.GetSessionIdStr() == PendingJoinSessionId)
+				{
+					// Found it — hand off to normal join flow
+					JoinSession(Result);
+					PendingJoinSessionId.Empty();
+					return;
+				}
+			}
+		}
+
+		// Session not found or already gone
+		UE_LOG(LogTemp, Warning, TEXT("[MSS] FindSessionById: session %s not found"),
+			*PendingJoinSessionId);
+		PendingJoinSessionId.Empty();
+
+		// Reuse the join complete delegate to signal failure back to Menu
+		MultiplayerOnJoinSessionComplete.Broadcast(
+			EOnJoinSessionCompleteResult::SessionDoesNotExist);
+		return;
+	}
+
+	// ── Broad-search path (server browser) ──────────────────────────
 
 	if (LastSessionSearch->SearchResults.Num() <= 0)	//BroadCast false if result is Empty
 	{
@@ -404,7 +473,8 @@ void UMultiplayerSessionsSubsystem::OnFindSessionComplete(bool bWasSuccessful)
 	
 	// Broadcast both raw and converted results for backwards compat
 	MultiplayerOnFindSessionComplete.Broadcast(LastSessionSearch->SearchResults, bWasSuccessful);
-	OnServerListUpdated.Broadcast(CachedServerRows, bWasSuccessful);}
+	OnServerListUpdated.Broadcast(CachedServerRows, bWasSuccessful);
+}
 
 void UMultiplayerSessionsSubsystem::OnJoinSessionComplete(FName SessionName, EOnJoinSessionCompleteResult::Type Result)
 {
@@ -497,9 +567,26 @@ FServerRowInfo UMultiplayerSessionsSubsystem::MakeServerRowInfoFromSearchResult(
 	Row.PingMs = Result.PingInMs;
 
 	// Host user
-	Row.HostUserName = Result.Session.OwningUserName;
-
+	FString DisplayName;
+	if (Result.Session.SessionSettings.Get(FName("HostDisplayName"), DisplayName))
+		Row.NakamaDisplayName = DisplayName;
+	else
+		Row.NakamaDisplayName = Row.HostUserName;
 	return Row;
+}
+
+FString UMultiplayerSessionsSubsystem::GetCurrentSessionId() const
+{
+	if (!SessionInterface.IsValid()) return TEXT("");
+	FNamedOnlineSession* Session = SessionInterface->GetNamedSession(NAME_GameSession);
+	if (!Session || !Session->SessionInfo.IsValid()) return TEXT("");
+	return Session->GetSessionIdStr();
+}
+
+// Read current settings (for LobbyWidget to check initial visibility)
+FOnlineSessionSettings* UMultiplayerSessionsSubsystem::GetCurrentSessionSettings() const
+{
+	return LastSessionSettings.Get();
 }
 
 bool UMultiplayerSessionsSubsystem::GetSearchResultBySessionId(const FString& SessionId, FOnlineSessionSearchResult& OutResult) const
