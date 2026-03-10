@@ -210,10 +210,6 @@ void UMenu::OnCreateSession(bool bWasSuccessful)
 			}
 			// Register private match BEFORE travel so the code is ready in lobby
 
-			// Guard against double call
-			if (bMatchRegistered) return;
-			bMatchRegistered = true;
-			
 			if (IPrivateMatchInterface* Handler =
 				UMultiplayerSessionsSubsystem::GetPrivateMatchInterface())
 			{
@@ -392,7 +388,6 @@ void UMenu::OnStartSession(bool bWasSuccessful)
 
 void UMenu::HostButtonClicked()
 {
-	bMatchRegistered = false; // reset for new session
 	HostButton->SetIsEnabled(false);
 	if (MultiplayerSessionsSubsystem)
 	{

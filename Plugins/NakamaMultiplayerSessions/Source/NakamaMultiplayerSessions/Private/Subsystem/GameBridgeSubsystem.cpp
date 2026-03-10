@@ -147,11 +147,6 @@ FString::Printf(TEXT("[Bridge] RegisterPrivateMatch called. SessionId: '%s' | Na
         UE_LOG(LogTemp, Warning, TEXT("[Bridge] Nakama not ready, queuing match registration"));
         return;
     }
-    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Cyan,
-FString::Printf(TEXT("[Bridge] RegisterPrivateMatch called. SessionId: '%s' | Nakama valid: %s | LoggedIn: %s"),
-   *SteamSessionId,
-   Nakama          ? TEXT("YES") : TEXT("NO"),
-   (Nakama && Nakama->IsLoggedIn()) ? TEXT("YES") : TEXT("NO")));
     
     PendingMatchSessionId.Empty();
 

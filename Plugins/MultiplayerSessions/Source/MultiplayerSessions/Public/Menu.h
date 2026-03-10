@@ -124,6 +124,4 @@ private:
 
 	UFUNCTION()
 	void OnDisplayNameReady(const FString& Name);
-
-	bool bMatchRegistered = false;
 };
