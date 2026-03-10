@@ -25,8 +25,13 @@ void UNakamaBackendSubsystem::Initialize(FSubsystemCollectionBase& Collection)
     NakamaClient = UNakamaClient::CreateDefaultClient(
         NAKAMA_SERVER_KEY, NAKAMA_HOST, NAKAMA_PORT, NAKAMA_USE_SSL, /*bEnableDebug=*/true);
 
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::White,
+      TEXT("[Nakama] Initialize called"));
+
     if (!TryRestoreSession())
     {
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::White,
+            TEXT("[Nakama] No restored session, calling Login"));
         Login();
     }
 }
@@ -51,13 +56,18 @@ void UNakamaBackendSubsystem::Login()
 
     IOnlineSubsystem* OSS = Online::GetSubsystem(GetWorld());
 
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::White,
+       FString::Printf(TEXT("[Nakama] Login called. OSS: %s"),
+           OSS ? *OSS->GetSubsystemName().ToString() : TEXT("NULL")));
+    
     if (OSS && OSS->GetSubsystemName() == "STEAM")
     {
         LoginWithSteam();
     }
     else
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Nakama] Steam not available. Falling back to Device auth."));
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::White,
+    TEXT("[Nakama] Steam not available. Falling back to Device auth."));
         LoginWithDevice();
     }
 }
@@ -66,20 +76,29 @@ void UNakamaBackendSubsystem::LoginWithSteam()
 {
     if (!NakamaClient)
     {
-        UE_LOG(LogTemp, Error, TEXT("[Nakama] Client not initialized"));
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::White,
+   TEXT("[Nakama] Client not initialized"));
         return;
     }
 
     // Get the Steam session ticket — this is what AuthenticateSteam expects,
     // NOT the SteamID. The ticket is verified server-side by Nakama via Steam's API.
     FString SteamTicket = GetSteamSessionTicket();
+
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::White,
+     FString::Printf(TEXT("[Nakama] LoginWithSteam. Ticket empty: %s"),
+         SteamTicket.IsEmpty() ? TEXT("YES") : TEXT("NO")));
+    
     if (SteamTicket.IsEmpty())
     {
-        UE_LOG(LogTemp, Error, TEXT("[Nakama] Failed to get Steam session ticket. Is Steam running?"));
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::White,
+   TEXT("[Nakama] Failed to get Steam session ticket. Is Steam running?"));
         return;
     }
 
-    UE_LOG(LogTemp, Log, TEXT("[Nakama] Authenticating with Steam..."));
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::White,
+   TEXT("[Nakama] Authenticating with Steam..."));
+
     ActiveProvider = ENakamaAuthProvider::Steam;
 
     FOnAuthUpdate Success;
@@ -140,20 +159,36 @@ void UNakamaBackendSubsystem::LoginWithDevice()
 
 void UNakamaBackendSubsystem::HandleAuthSuccess(UNakamaSession* Session)
 {
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Green,
+       FString::Printf(TEXT("[Nakama] HandleAuthSuccess. User: '%s'"),
+           *Session->SessionData.Username));
+    
     UserSession = Session;
     SaveSession();
     SetupRealtimeConnection(Session);
     FetchAccount();
 
-    UE_LOG(LogTemp, Log, TEXT("[Nakama] Auth success. Provider: %d | User: %s"),
-        (int32)ActiveProvider, *Session->SessionData.Username);
-
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Green,
+    FString::Printf(TEXT("[Nakama] Auth success. Provider: %d | User: %s"),
+     (int32)ActiveProvider, *Session->SessionData.Username));
+           
     OnLoginSuccess.Broadcast(UserSession);
 }
 
 void UNakamaBackendSubsystem::HandleAuthError(const FNakamaError& Error)
 {
-    UE_LOG(LogTemp, Error, TEXT("[Nakama] Auth failed: %s"), *Error.Message);
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Red,
+        FString::Printf(TEXT("[Nakama] HandleAuthError: '%s'"), *Error.Message));
+
+    // If Steam auth failed, fall back to Device auth so features still work
+    if (ActiveProvider == ENakamaAuthProvider::Steam)
+    {
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Orange,
+            TEXT("[Nakama] Steam auth failed, falling back to Device auth"));
+        LoginWithDevice();
+        return;
+    }
+    
     OnLoginError.Broadcast(Error);
 }
 
@@ -161,6 +196,9 @@ void UNakamaBackendSubsystem::HandleAuthError(const FNakamaError& Error)
 
 void UNakamaBackendSubsystem::FetchAccount()
 {
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::White,
+        TEXT("[Nakama] FetchAccount called"));
+    
     if (!UserSession || !NakamaClient) return;
 
     FOnUserAccountInfo Success;
@@ -178,15 +216,17 @@ void UNakamaBackendSubsystem::HandleGetAccountSuccess(const FNakamaAccount& Acco
     {
         UserSession->SessionData.Username = Account.User.Username;
     }
-    UE_LOG(LogTemp, Log, TEXT("[Nakama] Account loaded. Username: %s | ID: %s"),
-        *Account.User.Username, *Account.User.Id);
+
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Green,
+        FString::Printf(TEXT("[Nakama] HandleGetAccountSuccess: '%s'"), *Account.User.Username));
 
     OnAccountLoaded.Broadcast();
 }
 
 void UNakamaBackendSubsystem::HandleGetAccountError(const FNakamaError& Error)
 {
-    UE_LOG(LogTemp, Error, TEXT("[Nakama] GetAccount failed: %s"), *Error.Message);
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Red,
+            FString::Printf(TEXT("[Nakama] HandleGetAccountError: '%s'"), *Error.Message));
 }
 
 void UNakamaBackendSubsystem::SetPlayerName(const FString& NewName)
@@ -264,8 +304,12 @@ void UNakamaBackendSubsystem::SaveSession()
 bool UNakamaBackendSubsystem::TryRestoreSession()
 {
     if (!UGameplayStatics::DoesSaveGameExist(TEXT("NakamaSession"), 0))
+    {
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::White,
+            TEXT("[Nakama] No saved session found"));
         return false;
-
+    }
+    
     auto* Save = Cast<UNakamaSessionSaveGame>(
         UGameplayStatics::LoadGameFromSlot(TEXT("NakamaSession"), 0));
 
@@ -275,10 +319,13 @@ bool UNakamaBackendSubsystem::TryRestoreSession()
 
     if (!UserSession || UserSession->IsExpired())
     {
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Orange,
+            TEXT("[Nakama] Saved session expired"));
         UserSession = nullptr;
-        UE_LOG(LogTemp, Warning, TEXT("[Nakama] Saved session expired — re-authenticating."));
         return false;
     }
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::White,
+       TEXT("[Nakama] Session restored, calling FetchAccount"));
 
     SetupRealtimeConnection(UserSession);
     FetchAccount();
@@ -342,21 +389,30 @@ FString UNakamaBackendSubsystem::GetSteamSessionTicket() const
 
 FString UNakamaBackendSubsystem::GetDeviceId() const
 {
-    // Stable device ID: load from save or generate once and persist.
-    // Used for the Device auth provider path.
     static FString CachedDeviceId;
-
-    if (!CachedDeviceId.IsEmpty())
-        return CachedDeviceId;
+    if (!CachedDeviceId.IsEmpty()) return CachedDeviceId;
 
     // Try loading persisted ID
     if (UGameplayStatics::DoesSaveGameExist(TEXT("NakamaDeviceId"), 0))
     {
-        // For a real implementation you'd have a small USaveGame for this.
-        // For now, fall through to generate.
+        if (auto* Save = Cast<UNakamaSessionSaveGame>(
+            UGameplayStatics::LoadGameFromSlot(TEXT("NakamaDeviceId"), 0)))
+        {
+            if (!Save->AuthToken.IsEmpty())
+            {
+                CachedDeviceId = Save->AuthToken; // reuse AuthToken field to store device ID
+                return CachedDeviceId;
+            }
+        }
     }
 
+    // Generate and persist
     CachedDeviceId = FGuid::NewGuid().ToString();
-    UE_LOG(LogTemp, Warning, TEXT("[Nakama] Generated new device ID: %s"), *CachedDeviceId);
+
+    auto* Save = Cast<UNakamaSessionSaveGame>(
+        UGameplayStatics::CreateSaveGameObject(UNakamaSessionSaveGame::StaticClass()));
+    Save->AuthToken = CachedDeviceId;
+    UGameplayStatics::SaveGameToSlot(Save, TEXT("NakamaDeviceId"), 0);
+
     return CachedDeviceId;
 }

@@ -112,6 +112,7 @@ public:
 private:
 	FString ActiveMatchCode;
 	FString PendingDisplayName;
+	FString PendingMatchSessionId;
 
 	static FString GenerateCode();
 

@@ -8,6 +8,7 @@
 #include "Online/OnlineSessionNames.h"
 
 IPrivateMatchInterface* UMultiplayerSessionsSubsystem::PrivateMatchHandler = nullptr;
+IPlayerBackendInterface* UMultiplayerSessionsSubsystem::PlayerBackendHandler = nullptr;
 
 
 UMultiplayerSessionsSubsystem::UMultiplayerSessionsSubsystem():
@@ -280,17 +281,32 @@ void UMultiplayerSessionsSubsystem::FindSessionById(const FString& SessionId)
 	CachedServerRows.Reset();
 	OnServerListUpdated.Broadcast(CachedServerRows, true);
 
+	bool bIsNull = (OSS->GetSubsystemName() == "NULL");
+	LastSessionSearch->bIsLanQuery = bIsNull;
+	
 	FindSessionsCompleteDelegateHandle =
 		SessionInterface->AddOnFindSessionsCompleteDelegate_Handle(
 			FindSessionsCompleteDelegate);
 
 	LastSessionSearch = MakeShareable(new FOnlineSessionSearch());
 	LastSessionSearch->MaxSearchResults = 200;
-	LastSessionSearch->bIsLanQuery = (OSS->GetSubsystemName() == "NULL");
 
-	LastSessionSearch->QuerySettings.Set(
-		SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);
+	//LastSessionSearch->bIsLanQuery = (OSS->GetSubsystemName() == "NULL");
 
+	// NULL subsystem doesn't support lobby queries — skip it
+	if (!bIsNull)
+	{
+		LastSessionSearch->QuerySettings.Set(
+			SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);
+	}
+	
+	/*LastSessionSearch->QuerySettings.Set(
+		SEARCH_LOBBIES, true, EOnlineComparisonOp::Equals);*/
+
+	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Cyan,
+		FString::Printf(TEXT("[MSS] FindSessionById: '%s' | LAN: %s"),
+			*SessionId, bIsNull ? TEXT("YES") : TEXT("NO")));
+	
 	const ULocalPlayer* LocalPlayer = GetWorld()->GetFirstLocalPlayerFromController();
 	if (!LocalPlayer)
 	{
@@ -439,6 +455,20 @@ void UMultiplayerSessionsSubsystem::OnCreateSessionComplete(FName SessionName, b
 
 void UMultiplayerSessionsSubsystem::OnFindSessionComplete(bool bWasSuccessful)
 {
+	if (bFindingBySessionId)
+	{
+		if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Cyan,
+			FString::Printf(TEXT("[MSS] FindById complete. Found: %d | Looking for: '%s'"),
+				LastSessionSearch->SearchResults.Num(),
+				*PendingJoinSessionId));
+
+		for (auto& Result : LastSessionSearch->SearchResults)
+		{
+			if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Yellow,
+				FString::Printf(TEXT("[MSS] Found session ID: '%s'"),
+					*Result.GetSessionIdStr()));
+		}
+	}
 	IOnlineSubsystem* OSS = Online::GetSubsystem(GetWorld());
 	SessionInterface = OSS ? OSS->GetSessionInterface() : nullptr;
 	
@@ -674,4 +704,12 @@ bool UMultiplayerSessionsSubsystem::GetSearchResultBySessionId(const FString& Se
 
 	// Not found
 	return false;
+}
+
+void UMultiplayerSessionsSubsystem::BroadcastDisplayName(const FString& Name)
+{
+	CachedDisplayName = Name;
+	if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Green,
+	 FString::Printf(TEXT("[MSS] BroadcastDisplayName: '%s'"), *Name));
+	OnDisplayNameReady.Broadcast(Name);
 }

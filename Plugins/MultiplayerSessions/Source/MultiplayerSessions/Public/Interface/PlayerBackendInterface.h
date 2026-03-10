@@ -16,7 +16,7 @@ class UPlayerBackendInterface : public UInterface
 /**
  * 
  */
-class NAKAMAMULTIPLAYERSESSIONS_API IPlayerBackendInterface
+class MULTIPLAYERSESSIONS_API IPlayerBackendInterface
 {
 	GENERATED_BODY()
 

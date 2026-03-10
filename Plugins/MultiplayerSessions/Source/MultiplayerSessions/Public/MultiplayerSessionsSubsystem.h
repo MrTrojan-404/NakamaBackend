@@ -8,6 +8,7 @@
 #include "Interfaces/OnlineSessionInterface.h"
 #include "MultiplayerSessionsSubsystem.generated.h"
 
+class IPlayerBackendInterface;
 class IPrivateMatchInterface;
 //Declaring our own system delegates for the Menu class to bind callbacks to
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FMultiplayerOnCreateSessionComplete, bool, bWasSuccessful);
@@ -36,6 +37,7 @@ struct FServerRowInfo
 };
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnServerListUpdated, const TArray<FServerRowInfo>&, ServerList, bool, bWasSuccessful);
 
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPlayerDisplayNameReady, const FString&, Name);
 
 UCLASS()
 class MULTIPLAYERSESSIONS_API UMultiplayerSessionsSubsystem : public UGameInstanceSubsystem
@@ -75,6 +77,7 @@ public:
 	 * Returns true and fills OutResult when found; otherwise returns false.
 	 */
 	bool GetSearchResultBySessionId(const FString& SessionId, FOnlineSessionSearchResult& OutResult) const;
+	void BroadcastDisplayName(const FString& Name);
 
 
 	UFUNCTION(BlueprintCallable)
@@ -89,6 +92,9 @@ public:
 
 	FString GetCurrentSessionId() const;
 	FOnlineSessionSettings* GetCurrentSessionSettings() const;
+
+	UPROPERTY(BlueprintAssignable)
+	FOnPlayerDisplayNameReady OnDisplayNameReady;
 	
 protected:
 	//Internal Callbacks for our Delegates we'll add to the online session interface delegates list
@@ -144,7 +150,20 @@ public:
 		return PrivateMatchHandler;
 	}
 
+	static void RegisterPlayerBackendInterface(IPlayerBackendInterface* Handler)
+	{
+		PlayerBackendHandler = Handler;
+	}
+	static IPlayerBackendInterface* GetPlayerBackendInterface()
+	{
+		return PlayerBackendHandler;
+	}
+
+	FString GetCachedDisplayName() const { return CachedDisplayName; }
+
+
 private:
 	static IPrivateMatchInterface* PrivateMatchHandler;
-
+	static IPlayerBackendInterface* PlayerBackendHandler;
+	FString CachedDisplayName;
 };

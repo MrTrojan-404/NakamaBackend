@@ -11,6 +11,8 @@
 #include "Components/EditableTextBox.h"
 #include "Components/TextBlock.h"
 #include "Interface/PrivateMatchInterface.h"
+#include "Interface/PlayerBackendInterface.h"
+
 
 void UMenu::MenuSetup(int32 NumberOfPublicConnections, FString TypeOfMatch, FString LobbyPath)
 {
@@ -53,8 +55,24 @@ void UMenu::MenuSetup(int32 NumberOfPublicConnections, FString TypeOfMatch, FStr
 		// Listen for server list updates
 		MultiplayerSessionsSubsystem->OnServerListUpdated.AddDynamic(
 			this, &UMenu::OnServerListUpdatedHandler);
+
+		MultiplayerSessionsSubsystem->OnDisplayNameReady.AddDynamic(
+	  this, &UMenu::OnDisplayNameReady);
 	}
-	
+
+	// Check if name already loaded — covers race condition with restored sessions
+	FString CachedName = MultiplayerSessionsSubsystem 
+		? MultiplayerSessionsSubsystem->GetCachedDisplayName() 
+		: FString();
+
+	if (!CachedName.IsEmpty())
+		OnDisplayNameReady(CachedName);
+}
+
+void UMenu::OnDisplayNameReady(const FString& Name)
+{
+	if (PlayerNameText)
+		PlayerNameText->SetText(FText::FromString(Name));
 }
 
 void UMenu::OnBridgeError(const FString& Error)
@@ -192,6 +210,10 @@ void UMenu::OnCreateSession(bool bWasSuccessful)
 			}
 			// Register private match BEFORE travel so the code is ready in lobby
 
+			// Guard against double call
+			if (bMatchRegistered) return;
+			bMatchRegistered = true;
+			
 			if (IPrivateMatchInterface* Handler =
 				UMultiplayerSessionsSubsystem::GetPrivateMatchInterface())
 			{
@@ -370,6 +392,7 @@ void UMenu::OnStartSession(bool bWasSuccessful)
 
 void UMenu::HostButtonClicked()
 {
+	bMatchRegistered = false; // reset for new session
 	HostButton->SetIsEnabled(false);
 	if (MultiplayerSessionsSubsystem)
 	{

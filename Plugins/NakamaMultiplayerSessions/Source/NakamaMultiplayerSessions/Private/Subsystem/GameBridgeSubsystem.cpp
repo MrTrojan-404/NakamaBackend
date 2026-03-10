@@ -10,7 +10,6 @@
 #include "Interfaces/OnlineIdentityInterface.h"
 #include "OnlineSubsystemUtils.h"
 #include "Dom/JsonObject.h"
-#include "GameState/LobbyGameState.h"
 #include "Serialization/JsonWriter.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -27,16 +26,46 @@ void UGameBridgeSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
     // Register into MSS so Menu can call us without knowing we exist
     UMultiplayerSessionsSubsystem::RegisterPrivateMatchInterface(this);
-    
+    UMultiplayerSessionsSubsystem::RegisterPlayerBackendInterface(this);
+
     if (UNakamaBackendSubsystem* Nakama = GetNakama())
     {
         Nakama->OnAccountLoaded.AddDynamic(this, &UGameBridgeSubsystem::OnNakamaAccountLoaded);
+
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Cyan,
+            FString::Printf(TEXT("[Bridge] Init. LoggedIn: %s | Name: '%s'"),
+                Nakama->IsLoggedIn() ? TEXT("YES") : TEXT("NO"),
+                *Nakama->GetUsername()));
+        
+        // ── Race condition fix ─────────────────────────────────────────────
+        // With Steam + restored session, FetchAccount may have already completed
+        // before this binding was registered. If already logged in, call manually.
+        if (Nakama->IsLoggedIn() && !Nakama->GetUsername().IsEmpty())
+        {
+            if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Green,
+                FString::Printf(TEXT("[Bridge] Already logged in at Init. Name: '%s'"), *Nakama->GetUsername()));
+            OnNakamaAccountLoaded();
+        }
+        else
+        {
+            if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 10.f, FColor::Red,
+                FString::Printf(TEXT("[Bridge] Not logged in at Init. LoggedIn: %s | Name: '%s'"),
+                    Nakama->IsLoggedIn() ? TEXT("YES") : TEXT("NO"),
+                    *Nakama->GetUsername()));
+        }
+    }
+    else
+    {
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Red,
+            TEXT("[Bridge] Init: Nakama subsystem NULL"));
     }
 }
 
 void UGameBridgeSubsystem::Deinitialize()
 {
     UMultiplayerSessionsSubsystem::RegisterPrivateMatchInterface(nullptr);
+    UMultiplayerSessionsSubsystem::RegisterPlayerBackendInterface(nullptr);
+
     Super::Deinitialize();
 }
 
@@ -106,12 +135,25 @@ void UGameBridgeSubsystem::RegisterPrivateMatch(const FString& SteamSessionId)
     UNakamaBackendSubsystem* Nakama = GetNakama();
 
     if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Cyan,
-    FString::Printf(TEXT("[Bridge] RegisterPrivateMatch called. SessionId: '%s' | Nakama valid: %s | LoggedIn: %s"),
-        *SteamSessionId,
-        Nakama          ? TEXT("YES") : TEXT("NO"),
-        (Nakama && Nakama->IsLoggedIn()) ? TEXT("YES") : TEXT("NO")));
+FString::Printf(TEXT("[Bridge] RegisterPrivateMatch called. SessionId: '%s' | Nakama valid: %s | LoggedIn: %s"),
+   *SteamSessionId,
+   Nakama          ? TEXT("YES") : TEXT("NO"),
+   (Nakama && Nakama->IsLoggedIn()) ? TEXT("YES") : TEXT("NO")));
     
-    if (!Nakama || !Nakama->IsLoggedIn()) return;
+    if (!Nakama || !Nakama->IsLoggedIn())
+    {
+        // Store and retry when Nakama finishes auth
+        PendingMatchSessionId = SteamSessionId;
+        UE_LOG(LogTemp, Warning, TEXT("[Bridge] Nakama not ready, queuing match registration"));
+        return;
+    }
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Cyan,
+FString::Printf(TEXT("[Bridge] RegisterPrivateMatch called. SessionId: '%s' | Nakama valid: %s | LoggedIn: %s"),
+   *SteamSessionId,
+   Nakama          ? TEXT("YES") : TEXT("NO"),
+   (Nakama && Nakama->IsLoggedIn()) ? TEXT("YES") : TEXT("NO")));
+    
+    PendingMatchSessionId.Empty();
 
     ActiveMatchCode = GenerateCode();
     
@@ -153,6 +195,11 @@ void UGameBridgeSubsystem::HandlePrivateMatchWriteSuccess(const FNakamaStoreObje
 void UGameBridgeSubsystem::JoinByCode(const FString& Code)
 {
     UNakamaBackendSubsystem* Nakama = GetNakama();
+
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Cyan,
+    FString::Printf(TEXT("[Bridge] JoinByCode: '%s' | LoggedIn: %s"),
+        *Code, (Nakama && Nakama->IsLoggedIn()) ? TEXT("YES") : TEXT("NO")));
+    
     if (!Nakama || !Nakama->IsLoggedIn())
     {
         UE_LOG(LogTemp, Warning, TEXT("[Bridge] JoinByCode failed: backend not logged in"));
@@ -182,6 +229,9 @@ void UGameBridgeSubsystem::JoinByCode(const FString& Code)
 
 void UGameBridgeSubsystem::HandlePrivateMatchReadSuccess(const FNakamaStorageObjectList& Objects)
 {
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Cyan,
+       FString::Printf(TEXT("[Bridge] MatchReadSuccess. Objects: %d"), Objects.Objects.Num()));
+    
     if (Objects.Objects.Num() == 0)
     {
         if (UMultiplayerSessionsSubsystem* Steam = GetSteam())
@@ -273,12 +323,26 @@ void UGameBridgeSubsystem::OnNakamaAccountLoaded()
     UNakamaBackendSubsystem* Nakama = GetNakama();
     if (!Nakama) return;
 
-    // Cache display name into MSS so CreateSession picks it up
+    FString Name = Nakama->GetUsername();
+
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Cyan,
+        FString::Printf(TEXT("[Bridge] OnNakamaAccountLoaded. Name: '%s'"), *Name));
+
     if (UMultiplayerSessionsSubsystem* Steam = GetSteam())
-        Steam->SetHostDisplayName(Nakama->GetUsername());
-    
-    
-    // Existing name sync logic
+    {
+        Steam->SetHostDisplayName(Name);
+        Steam->BroadcastDisplayName(Name);
+    }
+
+    // Register match if it was queued while Nakama was still authenticating
+    if (!PendingMatchSessionId.IsEmpty())
+    {
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Cyan,
+                    TEXT("[Bridge] Draining pending match registration"));
+
+        RegisterPrivateMatch(PendingMatchSessionId);
+    }
+
     if (!Nakama->HasPlayerName())
         SyncDisplayNameFromSteam();
 }
@@ -287,7 +351,9 @@ void UGameBridgeSubsystem::SyncDisplayNameFromSteam()
     FString SteamName = GetSteamDisplayName();
     if (SteamName.IsEmpty())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[Bridge] Steam display name unavailable."));
+        if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Cyan,
+                    TEXT("[Bridge] Steam display name unavailable."));
+
         return;
     }
     SetDisplayName(SteamName);
@@ -312,10 +378,16 @@ void UGameBridgeSubsystem::SetDisplayName(const FString& NewName)
 void UGameBridgeSubsystem::HandleDisplayNameUpdated(const FString& Name)
 {
     GetNakama()->OnUsernameUpdated.RemoveDynamic(
-        this, &UGameBridgeSubsystem::HandleDisplayNameUpdated);
+    this, &UGameBridgeSubsystem::HandleDisplayNameUpdated);
 
-    UE_LOG(LogTemp, Log, TEXT("[Bridge] Display name synced: %s"), *Name);
+    if (GEngine) GEngine->AddOnScreenDebugMessage(-1, 15.f, FColor::Cyan,
+     FString::Printf(TEXT("[Bridge] Display name synced: '%s'"), *Name));
+    
     OnDisplayNameSynced.Broadcast(Name);
+
+    // Forward through MSS so Menu doesn't need to know about Bridge
+    if (UMultiplayerSessionsSubsystem* Steam = GetSteam())
+        Steam->BroadcastDisplayName(Name);
 }
 
 // ─── Feature: Presence / Status ───────────────────────────────────────────────

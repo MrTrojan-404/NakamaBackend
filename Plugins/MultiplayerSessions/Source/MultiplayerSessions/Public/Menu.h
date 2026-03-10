@@ -118,4 +118,12 @@ private:
 	void PrivateToggleClicked();
 
 	void RefreshPrivacyText();
+
+	UPROPERTY(meta=(BindWidgetOptional))
+	UTextBlock* PlayerNameText = nullptr;
+
+	UFUNCTION()
+	void OnDisplayNameReady(const FString& Name);
+
+	bool bMatchRegistered = false;
 };
