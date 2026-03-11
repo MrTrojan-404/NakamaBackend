@@ -338,9 +338,42 @@ void UGameBridgeSubsystem::OnNakamaAccountLoaded()
         RegisterPrivateMatch(PendingMatchSessionId);
     }
 
-    if (!Nakama->HasPlayerName())
-        SyncDisplayNameFromSteam();
+    const bool bIsDeviceAuthFallback =
+        Nakama->GetActiveProvider() == ENakamaAuthProvider::Device;
+
+    if (!Nakama->HasPlayerName() || bIsDeviceAuthFallback)
+        TrySetBestAvailableDisplayName();
 }
+
+void UGameBridgeSubsystem::TrySetBestAvailableDisplayName()
+{
+    // Priority 1: Steam display name (best — real identity)
+    FString SteamName = GetSteamDisplayName();
+    if (!SteamName.IsEmpty())
+    {
+        SetDisplayName(SteamName);
+        return;
+    }
+
+    // Priority 2: OS username (reasonable fallback, always available)
+    FString OSName = FPlatformProcess::UserName(/*bOnlyAlphaNumeric=*/false);
+    if (!OSName.IsEmpty())
+    {
+        SetDisplayName(OSName);
+        return;
+    }
+
+    // Priority 3: Keep the UUID but trim it to something less ugly
+    // e.g. "ciUOXXMvoO" → "Player_ciUOX"
+    UNakamaBackendSubsystem* Nakama = GetNakama();
+    if (Nakama)
+    {
+        FString Trimmed = FString::Printf(TEXT("Player_%s"),
+            *Nakama->GetUsername().Left(5).ToUpper());
+        SetDisplayName(Trimmed);
+    }
+}
+
 void UGameBridgeSubsystem::SyncDisplayNameFromSteam()
 {
     FString SteamName = GetSteamDisplayName();

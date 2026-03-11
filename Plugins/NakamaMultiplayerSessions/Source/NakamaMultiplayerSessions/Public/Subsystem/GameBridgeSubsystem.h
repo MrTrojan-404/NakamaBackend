@@ -127,6 +127,7 @@ private:
 	// Display name callbacks
 	UFUNCTION()
 	void OnNakamaAccountLoaded();
+	void TrySetBestAvailableDisplayName();
 	UFUNCTION()
 	void HandleDisplayNameUpdated(const FString& Name);
 
